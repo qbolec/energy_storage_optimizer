@@ -62,6 +62,9 @@
     input[type="number"] {
       width: 60px;
     }
+    label{
+      margin-right:10px;
+    }
   </style>
 </head>
 <body>
@@ -76,7 +79,13 @@
   <canvas id="chart" width="800" height="400"></canvas>
 
   <div class="info" id="info">Hover over the chart to see details.</div>
-
+  <div id="constants">
+    <label>Storage Capacity<input type=number min=0 value=5 step="0.1" id="storageCapacity"/>(kWh)</label>
+    <label>Max charging speed<input type=number min=0 value=2 step="0.1" id="maxChargingSpeed"/>(kW)</label>
+    <label>Max discharging speed<input type=number min=0 value=2 step="0.1" id="maxDischargingSpeed"/>(kW)</label>
+    <label>Charging overhead<input type=number min=0 max=100 value=10 step="1" id="chargingOverhead"/>(%)</label>
+    <label>Energy sale provision<input type=number min=0 max=100 value=10 step="1" id="energySaleProvision"/>(%)</label>
+  </div>
   <table>
     <thead>
       <tr>
@@ -112,15 +121,10 @@
     let mouseDown = false;
 
     // Storage
-    let storageCapacity = 5;
     let STORAGE_RESOLUTION = 100;
-    const storageUnit = storageCapacity / STORAGE_RESOLUTION;
-    let maxDischargeSpeed = 2;//kW
-    let maxChargeSpeed = 2;//kW
-    let chargingCost = 0.1;
-    let sellingProvision = 0.1;
     const optimalStorage = Array(NUM_POINTS).fill(0);
     const optimalMoney = Array(NUM_POINTS).fill(0);
+    let storageUnit = 1;
     function debounce(f){
       let clock;
       return ()=>{
@@ -133,6 +137,13 @@
       drawChart();
     })
     function optimize(){
+      const storageCapacity = +document.getElementById('storageCapacity').value;
+      storageUnit = storageCapacity / STORAGE_RESOLUTION;
+      const maxDischargingSpeed = +document.getElementById('maxDischargingSpeed').value;//kW
+      const maxChargingSpeed = +document.getElementById('maxChargingSpeed').value;//kW
+      const chargingOverhead = +document.getElementById('chargingOverhead').value/100;
+      const sellingProvision = +document.getElementById('energySaleProvision').value/100;
+
       //time2initial2stored2mone[t][initial][s]
       let time2initial2stored2best = [
         Array.from({length:STORAGE_RESOLUTION+1},(_,initial)=>Array.from({length:STORAGE_RESOLUTION+1}, (_,s)=>({money:s==initial?0:-Infinity})))
@@ -141,13 +152,13 @@
         time2initial2stored2best[t+1] = 
           Array.from({length:STORAGE_RESOLUTION+1},(_,initial)=>[])
         for(let newS=0;newS<=STORAGE_RESOLUTION;newS++){
-          const minOldS = Math.max(0, newS - maxChargeSpeed * 0.5 / storageUnit); 
-          const maxOldS = Math.min(STORAGE_RESOLUTION, newS + maxDischargeSpeed * 0.5 / storageUnit);
+          const minOldS = Math.max(0, newS - Math.round(maxChargingSpeed * 0.5 / storageUnit)); 
+          const maxOldS = Math.min(STORAGE_RESOLUTION, newS + Math.round(maxDischargingSpeed * 0.5 / storageUnit));
           for(let initial=0;initial<=STORAGE_RESOLUTION;initial++){
             let best = {money:-Infinity};
             for(let oldS = minOldS; oldS<= maxOldS; ++oldS){
               const chargeSpeed = (newS - oldS)*storageUnit * 2;
-              const chargePower = chargeSpeed > 0 ? chargeSpeed * (1+chargingCost) : chargeSpeed;
+              const chargePower = chargeSpeed > 0 ? chargeSpeed * (1+chargingOverhead) : chargeSpeed;
               const housePowerNeed = consumption[t] - production[t] + chargePower;
               const money =
                 time2initial2stored2best[t][initial][oldS].money + -housePowerNeed*priceAtT*(housePowerNeed > 0 ? 1 : (1-sellingProvision));
@@ -304,7 +315,7 @@
       drawSteppedLine(consumption, 'green', ENERGY_MAX);
       drawSteppedLine(production, 'orange', ENERGY_MAX);
       // Storage
-      drawSmoothLine(optimalStorage, 'red', ENERGY_MAX/storageUnit);
+      drawSmoothLine(optimalStorage, 'red', STORAGE_RESOLUTION);
       const moneyMax = Math.max(...optimalMoney.map(x => Math.abs(x)));
       drawSmoothLine(optimalMoney.map(x => Math.max(x,0)), 'black', moneyMax);
       drawSmoothLine(optimalMoney.map(x => -Math.min(x,0)), 'violet', moneyMax);
@@ -368,11 +379,10 @@
       const padding = 50;
       const width = canvas.width - padding * 2;
       const pointWidth = width / NUM_POINTS;
-      const index = Math.floor((x - padding) / pointWidth);
+      let index = Math.floor((x - padding) / pointWidth);
 
       if (index < 0 || index >= NUM_POINTS) {
-        info.textContent = 'Hover over the chart to see details.';
-        return;
+        index = NUM_POINTS-1;
       }
 
       info.innerHTML = `Time: ${Math.floor(index / 2).toString().padStart(2, '0')}:${
@@ -384,6 +394,7 @@
     document.getElementById('editPrice').addEventListener('click', () => setActiveEdit('price'));
     document.getElementById('editConsumption').addEventListener('click', () => setActiveEdit('consumption'));
     document.getElementById('editProduction').addEventListener('click', () => setActiveEdit('production'));
+    document.getElementById('constants').addEventListener('change', optimizeAndRedrawLater);
 
     function setActiveEdit(mode) {
       activeEdit = mode;
@@ -394,6 +405,7 @@
     // Initialize
     updateTable();
     drawChart();
+    updateInfo({clientX:0});
   </script>
 </body>
 </html>
